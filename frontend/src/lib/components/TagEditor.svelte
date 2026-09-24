@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchesShortcut } from '$lib/utils/keyboard';
   import Icon from './Icon.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
@@ -33,8 +34,9 @@
   const excluded = $derived(mode === 'remove' ? [] : existingTags);
 
   function handleInputKeydown(event: KeyboardEvent) {
-    if (!onModeToggle || busy || draft || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.key !== '+' && event.key !== '-') return;
+    if (!onModeToggle || busy || draft || event.isComposing) return;
+    // Plus needs Shift on many layouts; minus is the plain minus shortcut.
+    if (!(matchesShortcut(event, '-') || matchesShortcut(event, '+') || matchesShortcut(event, '+', { shift: true }))) return;
     event.preventDefault();
     event.stopPropagation();
     if ((event.key === '-' && mode === 'add') || (event.key === '+' && mode === 'remove')) onModeToggle();

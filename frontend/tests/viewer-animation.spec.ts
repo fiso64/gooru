@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -38,6 +39,7 @@ async function mockApp(page: Page) {
     fileItem('sixth', 'sixth.jpg')
   ];
 
+  await page.route('**/api/v1/ui-config', (route) => route.fulfill({ json: { load_full_media_by_default: false, capabilities: ['preview_images'] } }));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
     contentType: 'application/json',
@@ -51,6 +53,7 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await mockFileAround(page, () => files);
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })

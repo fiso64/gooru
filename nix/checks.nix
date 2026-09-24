@@ -86,6 +86,20 @@ forAllSystems (system:
     invalidUsernameAssertions = invalidUsernameEval.config.assertions;
     missingListenAssertions = missingListenEval.config.assertions;
 
+    buildIdentityCheck = pkgs.runCommand "gooru-nix-build-identity-check" { } ''
+      output="$("${self.packages.${system}.default}/bin/gooru" --version)"
+      expected="${if import ./build-channel.nix then "development" else "release"}"
+      case "$output" in
+        *", development)"*) actual=development ;;
+        *) actual=release ;;
+      esac
+      if [ "$actual" != "$expected" ]; then
+        echo "Expected $expected build identity, got: $output" >&2
+        exit 1
+      fi
+      touch "$out"
+    '';
+
     moduleCheck =
       assert instanceWrapper != null;
       assert moduleEval.config.services.gooru.instances.main.admins.primary.username == "alice";
@@ -127,5 +141,6 @@ forAllSystems (system:
       '';
   in {
     package = self.packages.${system}.default;
+    build-identity = buildIdentityCheck;
     nixos-module = moduleCheck;
   })

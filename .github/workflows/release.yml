@@ -37,6 +37,7 @@ jobs:
           version="$(tr -d '\n' < VERSION)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$GITHUB_REF_NAME" == "v$version" ]]
+          [[ "$(nix eval --json --expr 'import ./nix/build-channel.nix')" == "false" ]]
           node scripts/release-notes.mjs > /dev/null
       - name: Test Go
         run: go test -count=1 ./...
@@ -51,7 +52,7 @@ jobs:
         working-directory: frontend
         run: |
           npx playwright install chromium
-          npm run test:e2e -- startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-cancel-inflight.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-history-controls.spec.ts issue-606-followup.spec.ts build-identity.spec.ts
+          GOORU_E2E_PREBUILT=1 npm run test:e2e -- --max-failures=3 --workers=3
       - name: Validate Nix package
         run: nix build .#packages.x86_64-linux.default --print-build-logs
       - name: Build all three portable release archives

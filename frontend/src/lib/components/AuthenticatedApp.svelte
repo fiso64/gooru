@@ -37,11 +37,9 @@
   import { createUploadTagReconciliationWave } from '$lib/state/uploadTagReconciliation';
   import { browserPersistenceRegistry, readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { errorMessage } from '$lib/utils/format';
-  import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
+  import { matchesShortcut, matchesShortcutCode, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
   import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
   import { tagEditDelta } from '$lib/utils/tagEdit';
-  import { previewAfterRemoval, previewNeighbor } from '$lib/utils/viewerNavigation';
-  import { offsetPageToken } from '$lib/utils/pagination';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { FileItem, Job, SavedSearchRequest } from '$lib/api/types';
 
@@ -370,10 +368,9 @@
   function handleKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented) return;
     const editable = isEditableShortcutTarget(event.target);
-    const modified = hasCommandModifier(event);
     const cursorFile = selectedCount === 0 ? libraryCursorFile(event.target) : null;
-    const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
-    if (shortcutsKey && !modified && !editable) {
+    const shortcutsKey = matchesShortcut(event, '?') || matchesShortcut(event, '?', { shift: true }) || matchesShortcutCode(event, 'Slash', { shift: true });
+    if (shortcutsKey && !editable) {
       event.preventDefault();
       setRoute('shortcuts');
       return;
@@ -408,7 +405,7 @@
     }
 
     if (nestedPreviewNavigation && library.activeFile && (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'j' || event.key === 'k')) return;
-    library.handleKeydown(event, loadedFiles);
+    library.handleKeydown(event);
   }
 
   function selectAllFiles() {
@@ -606,35 +603,21 @@
       } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {
         const removedID = actionDialog.id;
         const wasViewingRemovedFile = library.activeFile?.id === removedID;
-        const replacement = wasViewingRemovedFile ? previewAfterRemoval(removedID, loadedFiles) : null;
-        const visibleIndex = wasViewingRemovedFile ? loadedFiles.findIndex((file) => file.id === removedID) : -1;
-        const absoluteIndex = (pagedMode ? (library.page - 1) * $runtimeConfig.itemsPerPage : retainedStartIndex) + visibleIndex;
-        const needsNeighborLookup = visibleIndex >= 0 && ((visibleIndex === 0 && absoluteIndex > 0) || (!replacement && gridSnapshotTotalCount > 1));
-        const queryAtRemoval = library.filterQuery();
-        const sortAtRemoval = library.sort;
-        const orderAtRemoval = library.order;
+        // Resolve the predecessor before deletion, while the file is still a
+        // valid server-side anchor. Never infer it from the loaded grid page.
+        const replacement = wasViewingRemovedFile ? await library.removalReplacement() : null;
+        const removedLocalIndex = loadedFiles.findIndex((file) => file.id === removedID);
         await fileRemovalMutation.mutateAsync({ id: removedID, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });
         if (wasViewingRemovedFile && library.activeFile?.id === removedID) {
-          let nextFile = replacement;
-          if (needsNeighborLookup) {
-            // The preferred preceding file may be on the previous page; the next
-            // file can also be outside the currently loaded window.
-            const offset = Math.max(0, absoluteIndex - 1);
-            try {
-              const page = await new ApiClient().listFiles({
-                query: queryAtRemoval, sort: sortAtRemoval, order: orderAtRemoval,
-                limit: 1, pageToken: offsetPageToken(offset, 1)
-              });
-              if (page.files[0]) {
-                nextFile = page.files[0];
-                if (pagedMode) library.page = Math.floor(offset / $runtimeConfig.itemsPerPage) + 1;
-              }
-            } catch {
-              // Keep an already loaded fallback; otherwise return to the grid.
-            }
-          }
-          if (nextFile) library.openPreview(nextFile);
-          else library.closePreview();
+          if (replacement) {
+            // Only the first record on a paged grid can select a predecessor
+            // from the previous grid page; keep the existing page in other cases.
+            if (pagedMode && removedLocalIndex === 0 && library.page > 1) library.page -= 1;
+            library.openPreview(replacement);
+          } else library.closePreview();
+        } else {
+          // A removal outside the active viewer still changes listing membership.
+          library.invalidateNavigation(true);
         }
         for (let index = upload.items.length - 1; index >= 0; index -= 1) {
           if (upload.items[index]?.remoteFileID === actionDialog.id) upload.removeAt(index);
@@ -1055,15 +1038,16 @@
   {#if library.activeFile}
     <PreviewDialog
       file={library.activeFile}
-      preloadPrev={previewNeighbor(library.activeFile, files, -1) ?? undefined}
-      preloadNext={previewNeighbor(library.activeFile, files, 1) ?? undefined}
+      preloadPrev={library.preloadPrev}
+      preloadNext={library.preloadNext}
+      navigationError={library.navigationError}
       tagDraft={tagWorkflow.drafts[library.activeFile.id] ?? ''}
       tagBusy={Boolean(tagWorkflow.busy[library.activeFile.id])}
       tagError={tagWorkflow.errors[library.activeFile.id] ?? ''}
       tags={[]}
       onClose={library.closePreview}
-      onPrev={() => library.movePreview(-1, files)}
-      onNext={() => library.movePreview(1, files)}
+      onPrev={() => library.movePreview(-1)}
+      onNext={() => library.movePreview(1)}
       onNestedNavigationChange={(active) => (nestedPreviewNavigation = active)}
       onTagInput={tagWorkflow.updateDraft}
       onMutateTags={(file, operation, value) => value == null

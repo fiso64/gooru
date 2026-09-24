@@ -1,3 +1,4 @@
+import { invalidateNavigationAfterMutation } from '$lib/utils/navigationInvalidation';
 import { createInfiniteQuery, createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
 import { libraryKeys } from './library';
@@ -186,6 +187,7 @@ export function createTagMutation(getCSRFToken: () => string, queryClient: Query
   return createMutation<TagMutationResponse, Error, TagMutationVariables>(() => ({
     mutationFn: ({ operation, body }) => new ApiClient(getCSRFToken()).mutateTags(operation, body),
     onSuccess: (response, variables) => {
+      invalidateNavigationAfterMutation();
       const reconciledUnfilteredPages = reconcileExplicitTagMutationCache(queryClient, variables, response);
       const fileRefresh = reconciledUnfilteredPages
         ? queryClient.invalidateQueries({
@@ -225,6 +227,7 @@ async function refreshFileRemovalWhenSettled(operationID: string, queryClient: Q
   try {
     await waitForRemovalOperation(operationID);
   } finally {
+    invalidateNavigationAfterMutation();
     // The mutation itself resolves at durable admission so the confirmation
     // dialog can close immediately. Refresh library state only after the
     // background operation reaches a terminal state; failures remain visible in
@@ -256,6 +259,7 @@ export function createFilesRemovalMutation(getCSRFToken: () => string, queryClie
       // producer cannot disappear between invalidation windows.
       void queryClient.invalidateQueries({ queryKey: jobKeys.all });
       if (!durable.operation_id) {
+        invalidateNavigationAfterMutation();
         void queryClient.invalidateQueries({ queryKey: fileKeys.all });
         void queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot });
       }
@@ -272,6 +276,9 @@ export function createFileRemovalMutation(getCSRFToken: () => string, queryClien
   return createMutation<void, Error, FileRemovalVariables>(() => ({
     mutationFn: ({ id, mode }) => new ApiClient(getCSRFToken()).removeFile(id, mode),
     onSuccess: async () => {
+      // The single-file removal caller resolves and installs the viewer's
+      // replacement before invalidating its navigation window. Invalidating
+      // here could race the replacement with missing-anchor recovery.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: fileKeys.all }),
         queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })

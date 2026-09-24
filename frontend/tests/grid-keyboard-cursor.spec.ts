@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -62,6 +63,7 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#fff"/></svg>' }));
   await page.route('**/api/v1/files/*/preview', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64"/></svg>' }));
 
+  await mockFileAround(page, () => files);
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
@@ -220,10 +222,17 @@ test('single-file tag editor stages changes until Apply', async ({ page }) => {
   });
   await mockApp(page);
 
+  // The heading can render before the media grid receives its initial focus.
+  // Wait for the cursor target before dispatching shortcuts to it.
+  const first = page.getByRole('button', { name: 'Preview one.jpg' });
+  await expect(first).toBeVisible();
+  await expect(page.getByTestId('library-viewport')).toBeFocused();
   await page.keyboard.press('ArrowDown');
+  await expect(first).toBeFocused();
   await page.keyboard.press('t');
   const dialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
-  await expect(dialog.getByText('alpha', { exact: true })).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Stage removal of alpha' })).toBeVisible();
 
   const input = dialog.getByRole('textbox', { name: 'Tags for one.jpg' });
   await input.fill('beta');
@@ -263,4 +272,31 @@ test('cursor download sends a single-file selector', async ({ page }) => {
   await page.keyboard.press('d');
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0]).toEqual({ file_ids: ['one'] });
+});
+
+
+test('modified arrows leave the active media cursor and browser default untouched', async ({ page }) => {
+  await mockApp(page);
+  await page.keyboard.press('ArrowDown');
+  const cursor = page.locator('.thumb-open').first();
+  await expect(cursor).toBeFocused();
+  for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+    for (const modifiers of [
+      { altKey: true }, { ctrlKey: true }, { metaKey: true },
+      { altKey: true, shiftKey: true }, { ctrlKey: true, shiftKey: true },
+      { metaKey: true, shiftKey: true }, { altKey: true, ctrlKey: true }
+    ]) {
+      const prevented = await cursor.evaluate((element, { key, modifiers }) => {
+        const event = new KeyboardEvent('keydown', { key, code: key, bubbles: true, cancelable: true, ...modifiers });
+        element.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, { key, modifiers });
+      expect(prevented, `${key} with ${JSON.stringify(modifiers)}`).toBe(false);
+      await expect(cursor).toBeFocused();
+      await expect(page.getByText('1 selected', { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
+  }
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.thumb-open').nth(1)).toBeFocused();
 });

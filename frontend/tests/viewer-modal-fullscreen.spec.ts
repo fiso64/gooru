@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -27,6 +28,7 @@ async function mockApp(page: Page) {
   }));
   await page.route(/\/api\/v1\/files\/(one|two)\/(thumbnail|preview|content)(\?.*)?$/, (route) =>
     route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"/>' }));
+  await mockFileAround(page, () => files);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await page.getByRole('button', { name: 'Preview one.jpg' }).click();

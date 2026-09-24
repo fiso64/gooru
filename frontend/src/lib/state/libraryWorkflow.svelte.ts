@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import { ApiClient } from '$lib/api/client';
+import { ApiClient, ApiError } from '$lib/api/client';
 import { useOpaqueURLState } from '$lib/api/privacy';
 import { authState } from '$lib/stores/auth';
 import type { FileItem } from '$lib/api/types';
@@ -13,9 +13,10 @@ import {
   searchForLibraryURLState,
   type AppRoute
 } from '$lib/utils/appRoute';
-import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+import { isEditableShortcutTarget, matchesShortcut } from '$lib/utils/keyboard';
 import { replaceSidebarKind } from '$lib/utils/sidebarKinds';
-import { previewNeighbor } from '$lib/utils/viewerNavigation';
+import { advanceViewerWindow, windowNeighbor, type ViewerWindow } from '$lib/utils/viewerWindow';
+import { onNavigationInvalidated } from '$lib/utils/navigationInvalidation';
 import { clearViewerPreloadCache } from '$lib/utils/viewerPreload';
 import {
   applySelectionMembership,
@@ -67,11 +68,98 @@ export function createLibraryWorkflow(
   let selectionGeneration = 0;
   let activeFile = $state<FileItem | null>(null);
   let pendingPreviewID = $state(initialLibraryState.fileID);
+  let navigationWindow = $state<ViewerWindow<FileItem> | null>(null);
+  let navigationError = $state('');
+  let recoveryCandidate: FileItem | null = null;
+  let navigationGeneration = 0;
+  let navigationQueue: Promise<void> = Promise.resolve();
+  let pendingWindowRequest: { key: string; promise: Promise<ViewerWindow<FileItem>> } | null = null;
+  const navigationCount = 5;
+
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
   let historyGeneration = 0;
   let restoreGeneration = 0;
   let restoredStateKey = opaqueURLState && !window.location.search ? stateKey(initialLibraryState) : '';
   let initialOpaqueRestorePending = $state(Boolean(initialOpaqueToken));
+
+  function navigationContext() { return JSON.stringify([submittedQuery.trim(), sort, order]); }
+
+  function invalidateNavigation(preserveCandidate = false) {
+    const currentWindow = navigationWindow;
+    recoveryCandidate = preserveCandidate
+      ? (currentWindow && currentWindow.anchor === activeFile?.id
+        ? currentWindow.before[0] ?? currentWindow.after[0] ?? recoveryCandidate
+        : recoveryCandidate)
+      : null;
+    navigationGeneration++;
+    // Do not make new user input wait for an obsolete slow network request.
+    navigationQueue = Promise.resolve();
+    navigationWindow = null;
+    pendingWindowRequest = null;
+    navigationError = '';
+  }
+
+  // All requests are anchored to a real file in the server-side filtered set.
+  // Refills do not hide a usable window. A late response never overwrites a
+  // newer selection, search context, or mutation generation.
+  function requestNavigationWindow(file: FileItem, force = false): Promise<ViewerWindow<FileItem>> {
+    const context = navigationContext();
+    if (!force && navigationWindow?.anchor === file.id && navigationWindow.context === context) {
+      return Promise.resolve(navigationWindow);
+    }
+    const key = `${context}|${file.id}`;
+    if (pendingWindowRequest?.key === key) return pendingWindowRequest.promise;
+    const generation = navigationGeneration;
+    const promise = new ApiClient().filesAround(file.id, submittedQuery.trim(), sort, order, navigationCount).then((result) => {
+      const window: ViewerWindow<FileItem> = { anchor: file.id, context, complete: result.before.length < navigationCount && result.after.length < navigationCount, ...result };
+      if (generation === navigationGeneration && activeFile?.id === file.id && navigationContext() === context) {
+        navigationWindow = window;
+        navigationError = '';
+      }
+      return window;
+    });
+    pendingWindowRequest = { key, promise };
+    void promise.finally(() => {
+      if (pendingWindowRequest?.promise === promise) pendingWindowRequest = null;
+    }).catch(() => undefined);
+    return promise;
+  }
+
+  function fetchNavigationWindow(file: FileItem) { return requestNavigationWindow(file); }
+
+  // Replenish before a boundary, keeping the previous buffer navigable.
+  function replenishNavigationWindow() {
+    const file = activeFile;
+    if (!file || !navigationWindow || navigationWindow.anchor !== file.id || navigationWindow.complete) return;
+    if (navigationWindow.before.length > 2 && navigationWindow.after.length > 2) return;
+    void requestNavigationWindow(file, true).catch(() => undefined);
+  }
+
+  $effect(() => onNavigationInvalidated(() => invalidateNavigation(true)));
+
+  let previousNavigationContext = navigationContext();
+  $effect(() => {
+    const context = navigationContext();
+    if (context !== previousNavigationContext) {
+      previousNavigationContext = context;
+      invalidateNavigation();
+    }
+  });
+
+  $effect(() => {
+    const file = activeFile;
+    const context = navigationContext();
+    if (!browser || !file || route !== 'library') return;
+    if (navigationWindow?.anchor === file.id && navigationWindow.context === context) return;
+    const generation = navigationGeneration;
+    void fetchNavigationWindow(file).catch(async (error) => {
+      if (generation !== navigationGeneration || activeFile?.id !== file.id || navigationContext() !== context) return;
+      if (error instanceof ApiError && error.status === 404) {
+        try { await recoverMissingAnchor(-1, context, generation); }
+        catch (recoveryError) { navigationError = String(recoveryError); }
+      } else navigationError = String(error);
+    });
+  });
 
   function setSubmittedSearch(value: string) {
     submittedQuery = value;
@@ -109,6 +197,7 @@ export function createLibraryWorkflow(
     suggestionSearch.set(restoredQuery);
     setSubmittedSearch(restoredQuery);
     activeFile = null;
+    invalidateNavigation();
     selection = emptySelection();
     selectionAnchorID = '';
   }
@@ -228,6 +317,7 @@ export function createLibraryWorkflow(
     selection = emptySelection();
     selectionAnchorID = '';
     activeFile = null;
+    invalidateNavigation();
     clearViewerPreloadCache();
   }
 
@@ -386,42 +476,126 @@ export function createLibraryWorkflow(
     const localIndex = files.findIndex((candidate) => candidate.id === file.id);
     if (localIndex >= 0) page = Math.floor((Math.max(0, retainedStartIndex) + localIndex) / Math.max(1, pageSize)) + 1;
     clearViewerPreloadCache();
+    invalidateNavigation();
     activeFile = file;
     pendingPreviewID = file.id;
     route = 'library';
   }
 
   function closePreview() {
+    invalidateNavigation();
     activeFile = null;
     pendingPreviewID = '';
   }
 
-  function movePreview(delta: number, files: FileItem[]) {
-    const next = previewNeighbor(activeFile, files, delta);
-    if (!next) return;
-    // Rapid navigation is latest-wins: stale speculative decodes must not remain queued
-    // ahead of the browser's foreground request for the newly requested file.
+  async function recoverMissingAnchor(direction: number, context: string, generation: number): Promise<void> {
+    // A tag edit (or a changed query on a direct viewer URL) can remove the
+    // displayed file from the listing. A deleted/nonmatching ID cannot be used
+    // as a database cursor: choose a still-matching predecessor if available,
+    // otherwise enter the first server-side matching file.
+    const api = new ApiClient();
+    const candidate = recoveryCandidate;
+    let replacement: FileItem | undefined;
+    let window: ViewerWindow<FileItem> | undefined;
+    if (candidate) {
+      try {
+        const response = await api.filesAround(candidate.id, submittedQuery.trim(), sort, order, navigationCount);
+        window = { anchor: candidate.id, context, complete: response.before.length < navigationCount && response.after.length < navigationCount, ...response };
+        replacement = direction < 0 ? candidate : (response.after[0] ?? candidate);
+        if (replacement.id !== candidate.id) {
+          const nextResponse = await api.filesAround(replacement.id, submittedQuery.trim(), sort, order, navigationCount);
+          window = { anchor: replacement.id, context, complete: nextResponse.before.length < navigationCount && nextResponse.after.length < navigationCount, ...nextResponse };
+        }
+      } catch {
+        // The old predecessor or its successor may have been removed in the
+        // same bulk mutation. Never apply a window anchored to another file.
+        replacement = undefined;
+        window = undefined;
+      }
+    }
+    if (!replacement) {
+      const page = await api.listFiles({ query: submittedQuery.trim(), sort, order, limit: 1 });
+      replacement = page.files[0];
+      if (replacement) {
+        const response = await api.filesAround(replacement.id, submittedQuery.trim(), sort, order, navigationCount);
+        window = { anchor: replacement.id, context, complete: response.before.length < navigationCount && response.after.length < navigationCount, ...response };
+      }
+    }
+    if (generation !== navigationGeneration || context !== navigationContext()) return;
+    if (!replacement || !window) { closePreview(); return; }
+    recoveryCandidate = null;
     clearViewerPreloadCache();
-    activeFile = next;
-    pendingPreviewID = next.id;
+    navigationWindow = window;
+    activeFile = replacement;
+    pendingPreviewID = replacement.id;
+    navigationError = '';
+    replenishNavigationWindow();
   }
 
-  function handleKeydown(event: KeyboardEvent, files: FileItem[]) {
+  function movePreview(delta: number) {
+    // Serialize keypresses so a rapid sequence applies each step to the preceding
+    // result. Closing the viewer or a mutation invalidates queued steps.
+    const generation = navigationGeneration;
+    navigationQueue = navigationQueue.catch(() => undefined).then(async () => {
+      const file = activeFile;
+      if (!file || generation !== navigationGeneration) return;
+      try {
+        const context = navigationContext();
+        let window = navigationWindow;
+        if (!window || window.anchor !== file.id || window.context !== context || !windowNeighbor(window, delta)) {
+          window = await fetchNavigationWindow(file);
+        }
+        if (generation !== navigationGeneration || activeFile?.id !== file.id || navigationContext() !== context) return;
+        const next = windowNeighbor(window, delta);
+        if (!next) return; // singleton listing
+        clearViewerPreloadCache();
+        navigationWindow = advanceViewerWindow(window, file, delta);
+        activeFile = next;
+        pendingPreviewID = next.id;
+        navigationError = '';
+        replenishNavigationWindow();
+      } catch (error) {
+        if (generation !== navigationGeneration) return;
+        if (error instanceof ApiError && error.status === 404) {
+          try { await recoverMissingAnchor(delta, navigationContext(), generation); }
+          catch (recoveryError) { navigationError = String(recoveryError); }
+        } else navigationError = String(error);
+      }
+    });
+    return navigationQueue;
+  }
+
+  async function removalReplacement(): Promise<FileItem | null> {
+    const file = activeFile;
+    if (!file) return null;
+    try {
+      const window = await fetchNavigationWindow(file);
+      if (!window.before.length && !window.after.length) return null;
+      // Wraparound is correct for Previous, but deleting the first file must
+      // advance to the next remaining file, as the old deletion workflow did.
+      // This one-record listing read is only needed when deleting the active file.
+      const first = await new ApiClient().listFiles({ query: submittedQuery.trim(), sort, order, limit: 1 });
+      if (first.files[0]?.id === file.id) return window.after[0] ?? null;
+      return window.before[0] ?? window.after[0] ?? null;
+    } catch { return null; }
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || isEditableShortcutTarget(event.target)) return;
 
-    if (event.key === 'Escape') {
+    if (matchesShortcut(event, 'Escape')) {
       if (activeFile) closePreview();
       else if (selectionActive(selection)) clearSelection();
       return;
     }
-    if (activeFile && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'k')) {
+    if (activeFile && (matchesShortcut(event, 'ArrowLeft') || matchesShortcut(event, 'k'))) {
       event.preventDefault();
-      movePreview(-1, files);
+      movePreview(-1);
       return;
     }
-    if (activeFile && !event.shiftKey && (event.key === 'ArrowRight' || event.key === 'j')) {
+    if (activeFile && (matchesShortcut(event, 'ArrowRight') || matchesShortcut(event, 'j'))) {
       event.preventDefault();
-      movePreview(1, files);
+      movePreview(1);
     }
   }
 
@@ -457,6 +631,12 @@ export function createLibraryWorkflow(
     get selectionRequestID() { return selectionRequestID(selection); },
     get activeFile() { return activeFile; },
     get pendingPreviewID() { return pendingPreviewID; },
+    get preloadPrev() { return navigationWindow && navigationWindow.anchor === activeFile?.id ? navigationWindow.before[0] : undefined; },
+    get preloadNext() { return navigationWindow && navigationWindow.anchor === activeFile?.id ? navigationWindow.after[0] : undefined; },
+    get navigationError() { return navigationError; },
+    invalidateNavigation,
+    removalReplacement,
+
     setPaginationEnabled(value: boolean) {
       paginationEnabled = value;
       transportPage = value ? page : (pendingPreviewID ? transportPage : 1);

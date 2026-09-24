@@ -591,3 +591,14 @@ func (c *Client) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 func (c *Client) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
 	return c.store.GetTagsWithCounts(limit)
 }
+
+// GetFilesInfoByQueryAround resolves both sides of a file within the complete
+// query, sharing the same location-query compiler and ordering as grid paging.
+func (c *Client) GetFilesInfoByQueryAround(expression string, id int64, sort, order string, count int, verbose bool) ([]types.FileInfo, []types.FileInfo, error) {
+	sqlQuery, args, err := c.buildLocationQuery(expression)
+	if err != nil {
+		return nil, nil, err
+	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
+	return c.store.GetFilesInfoByLocationQueryAround(sqlQuery, args, id, sort, order, count)
+}

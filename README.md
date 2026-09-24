@@ -8,13 +8,13 @@ Gooru is intended primarily for personal and private multi-user libraries rather
 
   <img width="700" alt="Gooru demo showing the media library interface" src="https://github.com/user-attachments/assets/cf8a4feb-c508-474a-9b53-03e1bd077151" />
 
-
+The name Gooru sounds like the word "guru", and is also for a booru written in go. I thought it's clever.
 
 ## Features
 
 - Webui library with search, tags, saved searches, and bulk actions.
 - View supported media, including images, videos, gifs, and `.cbz` comic archives. 
-- Fast file uploads to configurable upload target dirs.
+- Tag external files without importing, or upload to configurable target dirs.
 - Content-based file identity that survives renames and moves.
 - Optional encryption for the database and uploads.
 - Many UI styling options.
@@ -22,7 +22,7 @@ Gooru is intended primarily for personal and private multi-user libraries rather
 
 ## Getting started
 
-Get a Debian package, Linux tarball, or Windows ZIP from the [latest release](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [Gooru Cachix binary cache and NixOS module](docs/SERVE.md#nixos-deployment). Each package includes the WebUI; Debian and Nix builds also support libvips.
+Get a Debian package, Linux tarball, or Windows ZIP from the [latest release](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [NixOS module](docs/SERVE.md#nixos-deployment). Each package includes the WebUI; Debian and Nix builds also support libvips.
 
 See [running and deploying Gooru](docs/SERVE.md) for installation and first-run instructions. You can also [build from source](docs/DEVELOPMENT.md#build-from-source).
 
@@ -41,10 +41,6 @@ See [running and deploying Gooru](docs/SERVE.md) for installation and first-run 
 ## Project status
 
 Under development. Back up your data!
-
-This project is fully maintained by an LLM (aka vibecoded); don't be surprised if there are rough edges. I only request features, test, and report bugs. Obviously, if you contribute with a bug report or a PR, I will look at it and ensure the bug is fixed/the feature is working correctly and reply myself (you will **never** get an automated response). 
-
-My unironic proudest contribution is the name Gooru, which sounds like the word "guru", and is also for a booru written in go.
 
 ## More pictures
 

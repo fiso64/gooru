@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchesShortcut, matchesShortcutModifiers } from '$lib/utils/keyboard';
   import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
@@ -67,19 +68,19 @@
 
     function handleKeydown(event: KeyboardEvent) {
       if (!dialogRef) return;
-      if (event.key === 'Escape') {
+      if (matchesShortcut(event, 'Escape')) {
         event.preventDefault();
         event.stopImmediatePropagation();
         if (!busy) onCancel();
         return;
       }
-      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (matchesShortcut(event, 'Enter', { ctrl: true }) || matchesShortcut(event, 'Enter', { meta: true })) {
         event.preventDefault();
         event.stopImmediatePropagation();
         if (!busy) confirm();
         return;
       }
-      if (event.key !== 'Tab') return;
+      if (event.key !== 'Tab' || !(matchesShortcutModifiers(event) || matchesShortcutModifiers(event, { shift: true }))) return;
 
       const focusable = Array.from(
         dialogRef.querySelectorAll<HTMLElement>('input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')
@@ -180,6 +181,17 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 18px;
+    min-width: 0;
+  }
+
+  .file-tag-heading > div {
+    /* Long unbroken filenames must shrink and wrap beside the close button. */
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .file-tag-heading > button {
+    flex-shrink: 0;
   }
 
   .file-tag-heading h2 {
@@ -187,6 +199,7 @@
   }
 
   .file-tag-list {
+    min-width: 0;
     max-height: min(320px, 42vh);
     overflow: auto;
     display: grid;
@@ -196,6 +209,7 @@
 
   .file-tag-group {
     display: grid;
+    min-width: 0;
     gap: 6px;
   }
 

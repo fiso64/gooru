@@ -4,7 +4,7 @@
   import { authState } from '$lib/stores/auth';
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
   import { errorMessage } from '$lib/utils/format';
-  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { matchesShortcut, matchesShortcutModifiers, isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   let {
     libraryCount,
@@ -55,7 +55,7 @@
   });
 
   function focusFirstTag(event: KeyboardEvent) {
-    if (event.defaultPrevented || event.key !== 'ArrowDown' || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
+    if (event.defaultPrevented || !matchesShortcut(event, 'ArrowDown') || isEditableShortcutTarget(event.target)) return;
     if (document.activeElement instanceof HTMLElement && document.activeElement.classList.contains('tagscloud-item')) return;
     const first = tagPage?.querySelector<HTMLButtonElement>('.tagscloud-item:not(.skeleton)');
     if (!first) return;
@@ -65,7 +65,7 @@
   }
 
   function handleGridKeydown(event: KeyboardEvent) {
-    if (!isGridDirection(event.key) || !(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('tagscloud-item')) return;
+    if (!matchesShortcutModifiers(event) || !isGridDirection(event.key) || !(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('tagscloud-item')) return;
     const buttons = Array.from(tagPage?.querySelectorAll<HTMLButtonElement>('.tagscloud-item:not(.skeleton)') ?? []);
     const currentIndex = buttons.indexOf(event.target);
     if (currentIndex < 0) return;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchesShortcut, matchesShortcutModifiers } from '$lib/utils/keyboard';
   import { flushSync, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
@@ -82,15 +83,15 @@
 
     function handleKeydown(event: KeyboardEvent) {
       if (!dialogRef) return;
-      if (event.key === 'Escape') {
+      if (matchesShortcut(event, 'Escape')) {
         if (hasOpenTagCompletions(event.target)) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         if (!busy) onCancel();
         return;
       }
-      if (event.key === 'Enter') {
-        const modifiedSubmit = event.ctrlKey || event.metaKey;
+      if (matchesShortcut(event, 'Enter') || matchesShortcut(event, 'Enter', { ctrl: true }) || matchesShortcut(event, 'Enter', { meta: true })) {
+        const modifiedSubmit = matchesShortcut(event, 'Enter', { ctrl: true }) || matchesShortcut(event, 'Enter', { meta: true });
         if (!modifiedSubmit && isEditableTarget(event.target)) return;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -103,7 +104,7 @@
         }
         return;
       }
-      if (event.key !== 'Tab') return;
+      if (event.key !== 'Tab' || !(matchesShortcutModifiers(event) || matchesShortcutModifiers(event, { shift: true }))) return;
 
       const focusable = Array.from(
         dialogRef.querySelectorAll<HTMLElement>('input:not([disabled]), textarea:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')

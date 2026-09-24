@@ -926,3 +926,81 @@ func nonNilStrings(values []string) []string {
 	}
 	return values
 }
+
+// NavigationLibrary is optional for library adapters that implement anchored,
+// bounded lookup without enumerating or offset-scanning all matching files.
+type NavigationLibrary interface {
+	ListFilesAround(ctx context.Context, query string, id string, sort, order string, count int) ([]types.FileInfo, []types.FileInfo, error)
+}
+
+func (l *GooruLibrary) ListFilesAround(ctx context.Context, query string, id string, sort, order string, count int) ([]types.FileInfo, []types.FileInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	anchor, err := l.GetFileByPublicID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return l.client.GetFilesInfoByQueryAround(query, anchor.ID, sort, order, count, l.verbose)
+}
+
+type fileAroundRequest struct {
+	FileID string `json:"file_id"`
+	Query  string `json:"query"`
+	Sort   string `json:"sort"`
+	Order  string `json:"order"`
+	Count  int    `json:"count"`
+}
+
+type fileAroundResponse struct {
+	Before []FileDTO `json:"before"`
+	After  []FileDTO `json:"after"`
+}
+
+func (s *Server) handleFilesAround(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
+	}
+	navigator, ok := s.library.(NavigationLibrary)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file navigation is not configured", nil)
+		return
+	}
+	var request fileAroundRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil || request.FileID == "" || request.Count < 1 || request.Count > 20 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "file_id and count (1-20) are required", nil)
+		return
+	}
+	queryText, err := s.expandSavedSearchQueryForRequest(r.Context(), request.Query)
+	if err != nil {
+		if errors.Is(err, core.ErrInvalidQuery) {
+			writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
+		} else {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to expand search", nil)
+		}
+		return
+	}
+	before, after, err := navigator.ListFilesAround(r.Context(), queryText, request.FileID, normalizeFileSort(request.Sort), normalizeSortOrder(request.Order), request.Count)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found", "file is not in the current listing", nil)
+		} else if errors.Is(err, core.ErrInvalidQuery) {
+			writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
+		} else {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to resolve neighbors", nil)
+		}
+		return
+	}
+	response := fileAroundResponse{Before: make([]FileDTO, 0, len(before)), After: make([]FileDTO, 0, len(after))}
+	for _, file := range before {
+		response.Before = append(response.Before, s.fileDTO(r.Context(), file, false))
+	}
+	for _, file := range after {
+		response.After = append(response.After, s.fileDTO(r.Context(), file, false))
+	}
+	writeJSON(w, http.StatusOK, response)
+}

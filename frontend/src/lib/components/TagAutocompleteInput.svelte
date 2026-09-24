@@ -6,6 +6,7 @@
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
   import { moveCompletionIndex } from '$lib/utils/completionNavigation';
   import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
+  import { matchesShortcutModifiers } from '$lib/utils/keyboard';
 
   let {
     id,
@@ -122,8 +123,11 @@
       }
       return;
     }
+    // The parent owns explicitly modified shortcuts (e.g. Shift++ for tag
+    // mode on layouts where + requires Shift). Only the input's own completion
+    // shortcuts below require an entirely unmodified key.
     onKeydown?.(event);
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented || !matchesShortcutModifiers(event)) return;
     if (event.key === 'ArrowDown' && suggestions.length) {
       event.preventDefault();
       open = true;

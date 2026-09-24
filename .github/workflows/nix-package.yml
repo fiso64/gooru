@@ -3,11 +3,18 @@ name: Nix package
 on:
   pull_request:
     paths:
-      - 'frontend/**'
+      # Ordinary UI changes are verified by CI; reserve this job for Nix
+      # inputs and production build/dependency changes.
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/vite.config.ts'
+      - 'frontend/svelte.config.js'
+      - 'go.mod'
+      - 'go.sum'
       - 'flake.nix'
       - 'nix/**'
       - 'flake.lock'
-      - 'VERSION'
+      # release.yml validates VERSION-bump PRs across both Nix platforms.
       - 'internal/buildinfo/**'
       - '.github/workflows/nix-package.yml'
   push:
@@ -18,7 +25,8 @@ permissions:
 
 concurrency:
   group: nix-package-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  # Preserve publication on main; cancel only obsolete PR validation.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package:
@@ -30,6 +38,8 @@ jobs:
         run: nix build .#packages.x86_64-linux.default --print-build-logs
       - name: Validate NixOS module
         run: nix build .#checks.x86_64-linux.nixos-module --print-build-logs
+      - name: Validate default package build identity
+        run: nix build .#checks.x86_64-linux.build-identity --print-build-logs
 
   publish-main:
     name: Cache main (${{ matrix.system }})
@@ -65,6 +75,8 @@ jobs:
           cachixBin: ${{ steps.cachix-cli.outputs.bin }}
           skipPush: true
           skipAddingSubstituter: true
+      - name: Require release build on main
+        run: test "$(nix eval --json --expr 'import ./nix/build-channel.nix')" = "false"
       - name: Build native package and validate NixOS module
         shell: bash
         run: |

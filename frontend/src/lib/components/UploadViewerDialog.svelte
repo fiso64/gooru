@@ -11,7 +11,7 @@
   import type { UploadItem } from '$lib/state/uploadItems';
   import { uploadItemHasLocalViewer, uploadViewerNeighborIndex, type UploadViewerScope } from '$lib/state/uploadViewer';
   import { errorMessage, formatBytes, parseTags } from '$lib/utils/format';
-  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { matchesShortcutModifiers, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { viewerImageSource, type ViewerStageMedia } from '$lib/utils/media';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
 
@@ -197,14 +197,14 @@
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
-    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    if (event.target !== event.currentTarget || event.key !== 'Escape' || !matchesShortcutModifiers(event)) return;
     event.preventDefault();
     event.stopPropagation();
     onClose();
   }
 
   function handleWindowKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasCommandModifier(event)) return;
+    if (event.defaultPrevented || !matchesShortcutModifiers(event)) return;
 
     if (remoteViewerFile) {
       if (document.fullscreenElement && event.key === 'Escape') return;
@@ -389,6 +389,7 @@
     padding: 32px;
     color: var(--text-3);
     text-align: center;
+    overflow-wrap: anywhere;
   }
 
   .upload-viewer-remote-warning {
@@ -405,6 +406,7 @@
     color: var(--text-2);
     font-family: var(--font-mono);
     font-size: 10px;
+    overflow-wrap: anywhere;
   }
 
   .upload-viewer-rail {

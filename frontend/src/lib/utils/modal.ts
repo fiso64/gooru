@@ -1,3 +1,5 @@
+import { matchesShortcut, matchesShortcutCode, matchesShortcutModifiers } from './keyboard';
+
 /** A viewer is itself a dialog; only an additional dialog suspends its shortcuts. */
 export function hasBlockingModal(): boolean {
   return typeof document !== 'undefined'
@@ -25,11 +27,14 @@ export function placeModalInFullscreenViewer(node: HTMLElement) {
   // Allow dialog editing and button activation, but prevent window-level
   // shortcuts from reaching the underlying viewer or library.
   function interceptBackgroundKeys(event: KeyboardEvent) {
-    if (event.key === 'Escape' || event.key === 'Tab' || event.key === 'Enter') return;
+    // Modified keys belong to the focused control or the browser, not this
+    // unmodified-key backdrop interceptor.
+    if (!matchesShortcutModifiers(event)) return;
+    if (matchesShortcut(event, 'Escape') || event.key === 'Tab' || event.key === 'Enter') return;
     const target = event.target;
     if (target instanceof Element && node.contains(target)) {
       if (target.closest('input, textarea, select, [contenteditable], [role="textbox"]')) return;
-      if ((event.code === 'Space' || event.key === ' ') && target.closest('button, a, [role="button"]')) return;
+      if ((matchesShortcutCode(event, 'Space') || matchesShortcut(event, ' ')) && target.closest('button, a, [role="button"]')) return;
     }
     event.stopPropagation();
   }

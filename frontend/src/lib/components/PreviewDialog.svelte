@@ -9,7 +9,7 @@
   import { comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
   import { errorMessage, formatBytes, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
-  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { matchesShortcut, matchesShortcutModifiers, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { hasBlockingModal } from '$lib/utils/modal';
   import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
   import { canUseOriginalInViewer, viewerImageSource } from '$lib/utils/media';
@@ -20,6 +20,7 @@
     file,
     preloadPrev,
     preloadNext,
+    navigationError = '',
     tagDraft,
     tagBusy,
     tagError,
@@ -38,13 +39,14 @@
     file: FileItem;
     preloadPrev?: FileItem;
     preloadNext?: FileItem;
+    navigationError?: string;
     tagDraft: string;
     tagBusy: boolean;
     tagError: string;
     tags: Array<{ name?: string; tag?: string; namespace?: string; value?: string; count?: number }>;
     onClose: () => void;
-    onPrev: () => void;
-    onNext: () => void;
+    onPrev: () => void | Promise<void>;
+    onNext: () => void | Promise<void>;
     onTagInput: (fileID: string, value: string) => void;
     onMutateTags: (file: FileItem, operation: 'add' | 'set' | 'remove', value?: string) => void;
     onRemoveTag: (file: FileItem, tag: string) => void;
@@ -73,6 +75,9 @@
   let comicError = $state('');
   let comicController: AbortController | undefined;
   let navigationDirection: -1 | 1 = 1;
+  let presentedSource = $state('');
+  let primedNeighborID = '';
+
 
   const originalAvailable = $derived(canUseOriginalInViewer(file));
   const previewAvailable = $derived(hasRuntimeCapability($runtimeConfig, runtimeCapability.previewImages));
@@ -133,11 +138,27 @@
     imageSource;
     comicEntered;
     comicPageIndex;
+    presentedSource = '';
+    primedNeighborID = '';
     clearViewerPreloadCache();
+  });
+
+  // On a cold viewer open the server can resolve the neighbor after the media
+  // is already visible. Prime it then as well, without waiting for a second
+  // presentation event. Do not repeatedly cancel an unchanged completed preload.
+  $effect(() => {
+    const source = presentedSource;
+    const neighbor = navigationDirection < 0 ? preloadPrev : preloadNext;
+    const id = neighbor?.id ?? '';
+    if (!source || source !== imageSource || !neighbor || comicEntered || id === primedNeighborID) return;
+    primedNeighborID = id;
+    void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, effectivePreferOriginal)).catch(() => undefined);
   });
 
   function primeAfterPresentation(source: string) {
     if (source !== imageSource) return;
+    presentedSource = source;
+    primedNeighborID = '';
     clearViewerPreloadCache();
 
     if (comicEntered && comicManifest) {
@@ -147,8 +168,10 @@
       return;
     }
 
+    // The reactive scheduler also handles neighbors arriving after presentation.
     const neighbor = navigationDirection < 0 ? preloadPrev : preloadNext;
     if (!neighbor) return;
+    primedNeighborID = neighbor.id;
     void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, effectivePreferOriginal)).catch(() => undefined);
   }
 
@@ -172,24 +195,25 @@
   }
 
   function handleViewerKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasBlockingModal() || hasCommandModifier(event)) return;
+    if (event.defaultPrevented || hasBlockingModal() || !(matchesShortcutModifiers(event) || matchesShortcutModifiers(event, { shift: true }))) return;
     const viewerTagShortcut = isEmptyViewerTagShortcut(event, file.id);
     if (
-      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      (matchesShortcut(event, 'ArrowLeft') || matchesShortcut(event, 'ArrowRight'))
       && viewerTagShortcut
       && event.target instanceof HTMLInputElement
-      && !event.shiftKey
     ) {
       event.preventDefault();
       event.stopPropagation();
       event.target.blur();
-      if (event.key === 'ArrowLeft') stagePrev();
-      else stageNext();
-      void tick().then(() => focusTagInput());
+      // Navigation can await a server-side window lookup. Focus the new file's
+      // tag input only after the selected file has actually changed.
+      const navigation = event.key === 'ArrowLeft' ? stagePrev() : stageNext();
+      void Promise.resolve(navigation).then(() => tick()).then(() => focusTagInput()).catch(() => undefined);
       return;
     }
 
     if (isEditableShortcutTarget(event.target) && !viewerTagShortcut) return;
+    if (!matchesShortcutModifiers(event) && !matchesShortcut(event, 'Delete', { shift: true })) return;
     const key = event.key.toLowerCase();
     if (key === 't' || key === 'u') {
       event.preventDefault();
@@ -215,7 +239,7 @@
       openOriginalLink?.click();
       return;
     }
-    if (event.key === 'Delete') {
+    if (matchesShortcut(event, 'Delete') || matchesShortcut(event, 'Delete', { shift: true })) {
       event.preventDefault();
       event.stopPropagation();
       if (event.shiftKey) {
@@ -276,17 +300,17 @@
   function stagePrev() {
     navigationDirection = -1;
     if (comicEntered) movePage(-1);
-    else onPrev();
+    else return onPrev();
   }
 
   function stageNext() {
     navigationDirection = 1;
     if (comicEntered) movePage(1);
-    else onNext();
+    else return onNext();
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
-    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    if (event.target !== event.currentTarget || !matchesShortcut(event, 'Escape')) return;
     event.preventDefault();
     event.stopPropagation();
     onClose();
@@ -350,6 +374,7 @@
     comicPage={comicPageIndex}
     comicPages={comicManifest?.pages.length ?? 0}
     {comicError}
+    {navigationError}
     onToggleComic={() => void toggleComic()}
     onComicPageSelect={(index) => {
       navigationDirection = index < comicPageIndex ? -1 : 1;

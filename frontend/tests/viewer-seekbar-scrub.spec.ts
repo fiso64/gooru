@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -55,6 +56,7 @@ async function openVideoViewer(page: Page) {
   }));
   await page.route('**/api/v1/files/clip/content', async (route) => route.fulfill({ status: 204, body: '' }));
 
+  await mockFileAround(page, () => [file]);
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('test-password');

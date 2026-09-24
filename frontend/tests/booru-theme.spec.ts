@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -86,6 +87,7 @@ async function mockThemeApp(
   await page.route('**/api/v1/files/booru-image/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: svg }));
   await page.route('**/api/v1/files/booru-image/preview', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: svg }));
 
+  await mockFileAround(page, () => [file]);
   await page.goto('/');
   if (authenticated) await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   else await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();

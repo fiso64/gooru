@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchesShortcut } from '$lib/utils/keyboard';
   import { onMount } from 'svelte';
 
   type DropdownOption = {
@@ -42,7 +43,7 @@
 
   function handleKeydown(event: KeyboardEvent) {
     const target = event.target;
-    if (event.key !== 'Escape' || !picker?.open || !(target instanceof Node) || !picker.contains(target)) return;
+    if (!matchesShortcut(event, 'Escape') || !picker?.open || !(target instanceof Node) || !picker.contains(target)) return;
     event.preventDefault();
     close();
     picker.querySelector('summary')?.focus();

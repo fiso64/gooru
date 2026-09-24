@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Fixed
+
+- Previous/next viewer navigation now traverses the entire filtered library rather than only loaded pages.
+- Unmodified grid and viewer shortcuts no longer intercept browser or application shortcuts with extra modifiers, such as Alt+Left and Alt+Right.
+- The viewer tag input correctly switches back to add mode when pressing + after entering remove mode.
+- Confirmation and file-tag dialogs wrap long filenames and keep their actions accessible on narrow screens.
+
 ## [0.1.1]
 
 ### Added

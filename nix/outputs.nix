@@ -6,6 +6,7 @@ let
   version = builtins.replaceStrings [ "\n" ] [ "" ] (builtins.readFile ../VERSION);
   revision = if self ? rev then self.rev else if self ? dirtyRev then builtins.replaceStrings [ "-dirty" ] [ "" ] self.dirtyRev else "unknown";
   dirty = if self ? dirtyRev then "true" else "false";
+  development = import ./build-channel.nix;
 in {
   packages = forAllSystems (system:
     let
@@ -35,7 +36,7 @@ in {
           "-X=gooru.local/internal/buildinfo.Version=${version}"
           "-X=gooru.local/internal/buildinfo.Revision=${revision}"
           "-X=gooru.local/internal/buildinfo.Dirty=${dirty}"
-          "-X=gooru.local/internal/buildinfo.Development=true"
+          "-X=gooru.local/internal/buildinfo.Development=${if development then "true" else "false"}"
         ];
         nativeBuildInputs = [ pkgs.pkg-config ];
         buildInputs = [ pkgs.vips ];
