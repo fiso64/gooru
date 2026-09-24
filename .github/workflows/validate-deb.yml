@@ -8,13 +8,23 @@ on:
       - 'scripts/build-deb.sh'
       - 'go.mod'
       - 'go.sum'
-      - 'frontend/**'
-      - 'VERSION'
+      # App-only changes are tested by CI. A VERSION PR exercises the full
+      # release matrix in release.yml; packaging changes run this validator.
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/vite.config.ts'
+      - 'frontend/svelte.config.js'
+      - 'scripts/gooru-instance-setup.sh'
+      - 'scripts/gooru-instance.sh'
       - 'systemd/**'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: deb-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deb:
