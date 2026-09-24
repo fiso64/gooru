@@ -6,7 +6,9 @@ import type { Page } from '@playwright/test';
 export async function mockFileAround<T extends { id: string }>(page: Page, getFiles: (request: { query: string }) => readonly T[]) {
   await page.route('**/api/v1/files/around', (route) => {
     const { file_id, count = 5, query = '' } = route.request().postDataJSON() as { file_id: string; count?: number; query?: string };
-    const files = getFiles({ query });
+    // Match the API contract: legacy grid fixtures often omit this required DTO field.
+    // Preserve explicit unsupported-media values when a fixture provides them.
+    const files = getFiles({ query }).map((file) => ({ viewer_support: 'supported', ...file }));
     const index = files.findIndex((item) => item.id === file_id);
     if (index < 0) return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'file is not in listing' } } });
     const length = Math.min(count, files.length - 1);
