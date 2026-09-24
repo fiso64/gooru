@@ -25,7 +25,8 @@ permissions:
 
 concurrency:
   group: nix-package-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  # Preserve publication on main; cancel only obsolete PR validation.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package:
