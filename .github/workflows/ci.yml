@@ -35,7 +35,14 @@ jobs:
           test -d "$gocache" && test -w "$gocache"
           test -d "$gomodcache" && test -w "$gomodcache"
       - name: Test
-        run: go test -count=1 ./...
+        run: |
+          # PR retries reuse Go's content-addressed test results for unchanged packages.
+          # Keep the develop-branch post-merge run uncached.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            go test ./...
+          else
+            go test -count=1 ./...
+          fi
       - name: Build
         run: go build ./...
 
