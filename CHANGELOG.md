@@ -5,6 +5,7 @@
 ### Fixed
 
 - Prev/Next viewer navigation only cycling through the items on the loaded pages instead of the whole set. 
+- Alt+Left/Right and some other shortcuts with modifiers wrongly intercepted despite not being used by the UI. 
 
 ## [0.1.1]
 
