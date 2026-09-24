@@ -389,6 +389,7 @@
     padding: 32px;
     color: var(--text-3);
     text-align: center;
+    overflow-wrap: anywhere;
   }
 
   .upload-viewer-remote-warning {
@@ -405,6 +406,7 @@
     color: var(--text-2);
     font-family: var(--font-mono);
     font-size: 10px;
+    overflow-wrap: anywhere;
   }
 
   .upload-viewer-rail {
