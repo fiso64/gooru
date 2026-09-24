@@ -3,11 +3,18 @@ name: Nix package
 on:
   pull_request:
     paths:
-      - 'frontend/**'
+      # Ordinary UI changes are verified by CI; reserve this job for Nix
+      # inputs and production build/dependency changes.
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/vite.config.ts'
+      - 'frontend/svelte.config.js'
+      - 'go.mod'
+      - 'go.sum'
       - 'flake.nix'
       - 'nix/**'
       - 'flake.lock'
-      - 'VERSION'
+      # release.yml validates VERSION-bump PRs across both Nix platforms.
       - 'internal/buildinfo/**'
       - '.github/workflows/nix-package.yml'
   push:
