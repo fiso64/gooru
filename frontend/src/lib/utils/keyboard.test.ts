@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isEditableShortcutTarget, isInteractiveShortcutTarget, libraryShortcutAction, searchShortcutAction, uploadShortcutAction } from './keyboard';
+import { isEditableShortcutTarget, isInteractiveShortcutTarget, libraryShortcutAction, matchesShortcut, matchesShortcutCode, matchesShortcutModifiers, searchShortcutAction, uploadShortcutAction } from './keyboard';
 
 type FakeNode = {
   tagName?: string;
@@ -79,5 +79,59 @@ describe('global shortcut target policy', () => {
     expect(libraryShortcutAction('t', { selectedCount: 0, cursorAvailable: false })).toBeNull();
     expect(libraryShortcutAction('u', { selectedCount: 0, cursorAvailable: false })).toBeNull();
     expect(libraryShortcutAction('Delete', { selectedCount: 0, cursorAvailable: false })).toBeNull();
+  });
+});
+
+describe('exact keyboard shortcut modifiers', () => {
+  const combinations = Array.from({ length: 16 }, (_, bits) => ({
+    shiftKey: Boolean(bits & 1), altKey: Boolean(bits & 2),
+    ctrlKey: Boolean(bits & 4), metaKey: Boolean(bits & 8)
+  }));
+  const event = (key: string, code: string, modifiers: (typeof combinations)[number]) =>
+    ({ key, code, ...modifiers }) as KeyboardEvent;
+
+  it('recognizes a plain key only without any of the four modifiers', () => {
+    for (const [bits, combination] of combinations.entries()) {
+      const arrow = event('ArrowLeft', 'ArrowLeft', combination);
+      expect(matchesShortcut(arrow, 'ArrowLeft'), `modifier bitmask ${bits}`).toBe(bits === 0);
+      expect(matchesShortcut(arrow, 'ArrowRight')).toBe(false);
+      expect(matchesShortcutModifiers(arrow)).toBe(bits === 0);
+    }
+  });
+
+  it('requires exactly the explicitly requested combination, rejecting added modifiers', () => {
+    const cases = [
+      { mask: 1, key: 'ArrowLeft', modifiers: { shift: true } },
+      { mask: 2, key: 'Enter', modifiers: { alt: true } },
+      { mask: 4, key: 'a', modifiers: { ctrl: true } },
+      { mask: 8, key: 'Enter', modifiers: { meta: true } },
+      { mask: 3, key: 'ArrowRight', modifiers: { shift: true, alt: true } }
+    ] as const;
+    for (const { mask, key, modifiers } of cases) {
+      for (const [bits, combination] of combinations.entries()) {
+        expect(matchesShortcut(event(key, 'Key', combination), key, modifiers),
+          `${key}: expected ${mask}, received ${bits}`).toBe(bits === mask);
+      }
+    }
+  });
+
+  it('matches the physical Space key only with its declared modifiers', () => {
+    for (const [bits, combination] of combinations.entries()) {
+      expect(matchesShortcutCode(event(' ', 'Space', combination), 'Space')).toBe(bits === 0);
+    }
+    expect(matchesShortcutCode(event('a', 'KeyA', combinations[0]), 'Space')).toBe(false);
+    expect(matchesShortcut(event('A', 'KeyA', combinations[0]), 'a')).toBe(true); // Caps Lock
+  });
+
+  it('never treats Shift+letter or an extra modifier as the unmodified library action', () => {
+    for (const [bits, combination] of combinations.entries()) {
+      for (const key of ['a', 'd', 't', 'u', 'Delete']) {
+        const context = { selectedCount: 2, cursorAvailable: true, ...combination };
+        if (bits === 0) expect(libraryShortcutAction(key, context)).not.toBeNull();
+        else if (key === 'Delete' && bits === 1) expect(libraryShortcutAction(key, context)).toBe('delete-selected');
+        else if (key === 'a' && bits === 4) expect(libraryShortcutAction(key, context)).toBe('select-all');
+        else expect(libraryShortcutAction(key, context), `${key}: modifier bitmask ${bits}`).toBeNull();
+      }
+    }
   });
 });

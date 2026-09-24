@@ -46,6 +46,38 @@ export function isInteractiveShortcutTarget(target: EventTarget | null) {
   });
 }
 
+/** A shortcut owns exactly the modifiers it declares. Omitted flags mean false.
+ * Leave unmatched combinations to the browser or another focused control.
+ */
+export type ShortcutModifiers = {
+  shift?: boolean;
+  alt?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
+};
+
+type ShortcutEvent = Pick<KeyboardEvent, 'key' | 'code' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>;
+
+export function matchesShortcutModifiers(event: ShortcutEvent, modifiers: ShortcutModifiers = {}): boolean {
+  return event.shiftKey === (modifiers.shift ?? false)
+    && event.altKey === (modifiers.alt ?? false)
+    && event.ctrlKey === (modifiers.ctrl ?? false)
+    && event.metaKey === (modifiers.meta ?? false);
+}
+
+/** Use event.key for logical shortcuts. Letters also work under Caps Lock. */
+export function matchesShortcut(event: ShortcutEvent, key: string, modifiers: ShortcutModifiers = {}): boolean {
+  const matchesKey = /^[a-z]$/.test(key)
+    ? event.key.toLowerCase() === key
+    : event.key === key;
+  return matchesKey && matchesShortcutModifiers(event, modifiers);
+}
+
+/** Use event.code only for shortcuts intentionally bound to a physical key. */
+export function matchesShortcutCode(event: ShortcutEvent, code: string, modifiers: ShortcutModifiers = {}): boolean {
+  return event.code === code && matchesShortcutModifiers(event, modifiers);
+}
+
 export function hasCommandModifier(event: KeyboardEvent) {
   return event.altKey || event.ctrlKey || event.metaKey;
 }
@@ -87,7 +119,7 @@ export function uploadShortcutAction(
   altKey = false,
   shiftKey = false
 ): UploadShortcutAction {
-  if (key !== 'Enter' || !ctrlKey || metaKey || altKey || shiftKey || isModalShortcutTarget(target)) return null;
+  if (!matchesShortcut({ key, code: '', ctrlKey, metaKey, altKey, shiftKey }, 'Enter', { ctrl: true }) || isModalShortcutTarget(target)) return null;
   return 'submit-upload';
 }
 
@@ -105,17 +137,18 @@ export interface LibraryShortcutContext {
 export function libraryShortcutAction(key: string, context: LibraryShortcutContext): LibraryShortcutAction {
   const { selectedCount, cursorAvailable, shiftKey = false, altKey = false, ctrlKey = false, metaKey = false } = context;
   const targetAvailable = selectedCount > 0 || cursorAvailable;
-  if (ctrlKey || metaKey) {
-    return ctrlKey && !metaKey && !altKey && !shiftKey && key.toLowerCase() === 'a' ? 'select-all' : null;
-  }
-  if (altKey) return key === 'Enter' && !shiftKey && targetAvailable ? 'tag-selected' : null;
+  const event = { key, code: '', shiftKey, altKey, ctrlKey, metaKey };
+  if (matchesShortcut(event, 'a', { ctrl: true })) return 'select-all';
+  if (matchesShortcut(event, 'Enter', { alt: true })) return targetAvailable ? 'tag-selected' : null;
+  if (matchesShortcut(event, 'Delete', { shift: true })) return targetAvailable ? 'delete-selected' : null;
+  if (!matchesShortcutModifiers(event)) return null;
 
   switch (key.toLowerCase()) {
     case 'a': return 'select-all';
     case 'd': return targetAvailable ? 'download-selected' : null;
     case 't': return targetAvailable ? 'tag-selected' : null;
     case 'u': return targetAvailable ? 'untag-selected' : null;
-    case 'delete': return targetAvailable ? (shiftKey ? 'delete-selected' : 'untrack-selected') : null;
+    case 'delete': return targetAvailable ? 'untrack-selected' : null;
     default: return null;
   }
 }

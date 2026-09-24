@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchesShortcut } from '$lib/utils/keyboard';
   import CancelActiveJobsButton from './CancelActiveJobsButton.svelte';
   import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
   import JobRow from './JobRow.svelte';
@@ -30,7 +31,7 @@
 </script>
 
 <svelte:window
-  onkeydown={(event) => { if (event.key === 'Escape') onClose(); }}
+  onkeydown={(event) => { if (matchesShortcut(event, 'Escape')) onClose(); }}
   onclick={handleWindowClick}
 />
 

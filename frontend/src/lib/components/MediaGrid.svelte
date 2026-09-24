@@ -5,7 +5,7 @@
   import PageNav from './PageNav.svelte';
   import { errorMessage } from '$lib/utils/format';
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
-  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { matchesShortcut, matchesShortcutModifiers, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import type { Snippet } from 'svelte';
   import { virtualGrid, virtualGridStartRow, virtualMediaGeometry, virtualMediaWindow } from '$lib/state/ui';
   import { effectiveGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';
@@ -96,7 +96,7 @@
   }
 
   function focusFirstGridItem(event: KeyboardEvent) {
-    if (event.defaultPrevented || event.key !== 'ArrowDown' || hasCommandModifier(event)) return;
+    if (event.defaultPrevented || !matchesShortcut(event, 'ArrowDown')) return;
     const target = event.target;
     const fromLibrarySearch = target instanceof HTMLElement && target.classList.contains('searchbar-input');
     if (isEditableShortcutTarget(target) && !fromLibrarySearch) return;
@@ -111,14 +111,14 @@
   function handleGridKeydown(event: KeyboardEvent) {
     if (!(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('thumb-open')) return;
     const currentButton = event.target;
-    if (event.key === 'Escape') {
+    if (matchesShortcut(event, 'Escape')) {
       if (selectedCount > 0) return;
       event.preventDefault();
       event.stopPropagation();
       event.target.blur();
       return;
     }
-    if (!isGridDirection(event.key)) return;
+    if (!isGridDirection(event.key) || !(matchesShortcutModifiers(event) || matchesShortcutModifiers(event, { shift: true }))) return;
     const buttons = Array.from(gridHost?.querySelectorAll<HTMLButtonElement>('.thumb-open') ?? []);
     const currentIndex = buttons.indexOf(currentButton);
     if (currentIndex < 0) return;

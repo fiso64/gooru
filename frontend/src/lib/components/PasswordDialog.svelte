@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchesShortcut, matchesShortcutModifiers } from '$lib/utils/keyboard';
   import { errorMessage } from '$lib/utils/format';
 
   let {
@@ -54,21 +55,21 @@
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
-    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    if (event.target !== event.currentTarget || !matchesShortcut(event, 'Escape')) return;
     event.preventDefault();
     event.stopPropagation();
     close();
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
+    if (matchesShortcut(event, 'Escape')) {
       event.preventDefault();
       close();
       return;
     }
-    if (event.key !== 'Enter') return;
+    if (!(matchesShortcut(event, 'Enter') || matchesShortcut(event, 'Enter', { ctrl: true }) || matchesShortcut(event, 'Enter', { meta: true }))) return;
 
-    const modifiedSubmit = event.ctrlKey || event.metaKey;
+    const modifiedSubmit = !matchesShortcutModifiers(event);
     if (modifiedSubmit || (!isEditableTarget(event.target) && !isNativeEnterControl(event.target))) {
       event.preventDefault();
       event.stopImmediatePropagation();

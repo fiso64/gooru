@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchesShortcut, matchesShortcutModifiers } from '$lib/utils/keyboard';
   import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
@@ -67,19 +68,19 @@
 
     function handleKeydown(event: KeyboardEvent) {
       if (!dialogRef) return;
-      if (event.key === 'Escape') {
+      if (matchesShortcut(event, 'Escape')) {
         event.preventDefault();
         event.stopImmediatePropagation();
         if (!busy) onCancel();
         return;
       }
-      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (matchesShortcut(event, 'Enter', { ctrl: true }) || matchesShortcut(event, 'Enter', { meta: true })) {
         event.preventDefault();
         event.stopImmediatePropagation();
         if (!busy) confirm();
         return;
       }
-      if (event.key !== 'Tab') return;
+      if (event.key !== 'Tab' || !(matchesShortcutModifiers(event) || matchesShortcutModifiers(event, { shift: true }))) return;
 
       const focusable = Array.from(
         dialogRef.querySelectorAll<HTMLElement>('input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')

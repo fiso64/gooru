@@ -9,7 +9,7 @@
   import { comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
   import { errorMessage, formatBytes, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
-  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { matchesShortcut, matchesShortcutModifiers, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { hasBlockingModal } from '$lib/utils/modal';
   import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
   import { canUseOriginalInViewer, viewerImageSource } from '$lib/utils/media';
@@ -195,13 +195,12 @@
   }
 
   function handleViewerKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasBlockingModal() || hasCommandModifier(event)) return;
+    if (event.defaultPrevented || hasBlockingModal() || !(matchesShortcutModifiers(event) || matchesShortcutModifiers(event, { shift: true }))) return;
     const viewerTagShortcut = isEmptyViewerTagShortcut(event, file.id);
     if (
-      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      (matchesShortcut(event, 'ArrowLeft') || matchesShortcut(event, 'ArrowRight'))
       && viewerTagShortcut
       && event.target instanceof HTMLInputElement
-      && !event.shiftKey
     ) {
       event.preventDefault();
       event.stopPropagation();
@@ -214,6 +213,7 @@
     }
 
     if (isEditableShortcutTarget(event.target) && !viewerTagShortcut) return;
+    if (!matchesShortcutModifiers(event) && !matchesShortcut(event, 'Delete', { shift: true })) return;
     const key = event.key.toLowerCase();
     if (key === 't' || key === 'u') {
       event.preventDefault();
@@ -239,7 +239,7 @@
       openOriginalLink?.click();
       return;
     }
-    if (event.key === 'Delete') {
+    if (matchesShortcut(event, 'Delete') || matchesShortcut(event, 'Delete', { shift: true })) {
       event.preventDefault();
       event.stopPropagation();
       if (event.shiftKey) {
@@ -310,7 +310,7 @@
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
-    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    if (event.target !== event.currentTarget || !matchesShortcut(event, 'Escape')) return;
     event.preventDefault();
     event.stopPropagation();
     onClose();

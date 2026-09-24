@@ -11,7 +11,7 @@
   import { authState } from '$lib/stores/auth';
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import { readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
-  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { matchesShortcut, matchesShortcutCode, matchesShortcutModifiers, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { hasBlockingModal } from '$lib/utils/modal';
   import { replaceSidebarKind } from '$lib/utils/sidebarKinds';
 
@@ -229,9 +229,9 @@
   }
 
   function handleShellKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
+    if (event.defaultPrevented || isEditableShortcutTarget(event.target)) return;
     if (shortcutsOpen) {
-      if (event.key === 'Escape') {
+      if (matchesShortcut(event, 'Escape')) {
         event.preventDefault();
         event.stopPropagation();
         closeShortcuts();
@@ -239,14 +239,15 @@
       return;
     }
     if (hasBlockingModal()) return;
-    const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
+    const shortcutsKey = matchesShortcut(event, '?') || matchesShortcut(event, '?', { shift: true }) || matchesShortcutCode(event, 'Slash', { shift: true });
     if (shortcutsKey) {
       event.preventDefault();
       event.stopPropagation();
       openShortcuts();
       return;
     }
-    if (event.key.toLowerCase() === 'b' && route === 'library' && !document.querySelector('[role="dialog"]')) {
+    if (!matchesShortcutModifiers(event)) return;
+    if (matchesShortcut(event, 'b') && route === 'library' && !document.querySelector('[role="dialog"]')) {
       event.preventDefault();
       event.stopPropagation();
       onCreateSavedSearch();

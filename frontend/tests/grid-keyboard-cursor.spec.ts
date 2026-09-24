@@ -266,3 +266,30 @@ test('cursor download sends a single-file selector', async ({ page }) => {
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0]).toEqual({ file_ids: ['one'] });
 });
+
+
+test('modified arrows leave the active media cursor and browser default untouched', async ({ page }) => {
+  await mockApp(page);
+  await page.keyboard.press('ArrowDown');
+  const cursor = page.locator('.thumb-open').first();
+  await expect(cursor).toBeFocused();
+  for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+    for (const modifiers of [
+      { altKey: true }, { ctrlKey: true }, { metaKey: true },
+      { altKey: true, shiftKey: true }, { ctrlKey: true, shiftKey: true },
+      { metaKey: true, shiftKey: true }, { altKey: true, ctrlKey: true }
+    ]) {
+      const prevented = await cursor.evaluate((element, { key, modifiers }) => {
+        const event = new KeyboardEvent('keydown', { key, code: key, bubbles: true, cancelable: true, ...modifiers });
+        element.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, { key, modifiers });
+      expect(prevented, `${key} with ${JSON.stringify(modifiers)}`).toBe(false);
+      await expect(cursor).toBeFocused();
+      await expect(page.getByText('1 selected', { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
+  }
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.thumb-open').nth(1)).toBeFocused();
+});

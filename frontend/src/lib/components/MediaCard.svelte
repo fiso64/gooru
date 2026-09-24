@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchesShortcut, matchesShortcutCode } from '$lib/utils/keyboard';
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { mediaDimensions, mediaDuration } from '$lib/utils/format';
@@ -148,13 +149,17 @@
   }
 
   function openOrSelect(event: MouseEvent) {
+    // Native keyboard activation of a button can synthesize click even when a modified
+    // Enter was deliberately left alone by the shortcut handler. Keep modified mouse
+    // clicks as the existing explicit selection gesture.
+    if (event.detail === 0 && (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)) return;
     if (selectionActive || event.shiftKey || event.metaKey || event.ctrlKey) { onToggleSelect(file, event.shiftKey); return; }
     onOpen(file);
   }
 
   function handleKeyboardAction(event: KeyboardEvent) {
-    if (event.code === 'Space') { event.preventDefault(); event.stopPropagation(); onToggleSelect(file, false); return; }
-    if (event.key === 'Enter' && !event.altKey) { event.preventDefault(); event.stopPropagation(); onOpen(file); }
+    if (matchesShortcutCode(event, 'Space')) { event.preventDefault(); event.stopPropagation(); onToggleSelect(file, false); return; }
+    if (matchesShortcut(event, 'Enter')) { event.preventDefault(); event.stopPropagation(); onOpen(file); }
   }
 
   function handleKeydown(event: KeyboardEvent) {

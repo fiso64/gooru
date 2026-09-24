@@ -3,7 +3,7 @@
   import Icon from './Icon.svelte';
   import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation, type ViewerScaling } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
-  import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
+  import { matchesShortcut, matchesShortcutCode, matchesShortcutModifiers, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { hasBlockingModal } from '$lib/utils/modal';
   import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
   import { preserveNativeViewerSize, type ViewerStageMedia } from '$lib/utils/media';
@@ -688,9 +688,9 @@
   }
 
   function handleViewerKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasBlockingModal() || hasCommandModifier(event)) return;
+    if (event.defaultPrevented || hasBlockingModal() || !(matchesShortcutModifiers(event) || matchesShortcutModifiers(event, { shift: true }))) return;
     const target = event.target;
-    const shiftedArrow = event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
+    const shiftedArrow = matchesShortcut(event, 'ArrowLeft', { shift: true }) || matchesShortcut(event, 'ArrowRight', { shift: true });
     const emptyViewerTagInput = target instanceof HTMLInputElement
       && target.id === 'tags-' + renderedFile.id
       && target.value === '';
@@ -699,14 +699,14 @@
     const targetInsideStage = target instanceof Node && Boolean(stageElement?.contains(target));
     if (targetInsideStage && isInteractiveShortcutTarget(target)) return;
 
-    if (event.key === 'Escape' && isFullscreen) {
+    if (matchesShortcut(event, 'Escape') && isFullscreen) {
       event.preventDefault();
       event.stopPropagation();
       void document.exitFullscreen();
       return;
     }
 
-    if (onPrimaryAction && (event.code === 'Space' || event.key === 'Enter')) {
+    if (onPrimaryAction && (matchesShortcutCode(event, 'Space') || matchesShortcut(event, 'Enter'))) {
       if (isInteractiveShortcutTarget(target) && !delegatedTagKey) return;
       event.preventDefault();
       event.stopPropagation();
@@ -721,15 +721,19 @@
         event.stopPropagation();
         return;
       }
+      // Shift+arrow is reserved for seeking, even if the current media cannot seek.
+      return;
     }
 
-    if (keyboardNavigation && (event.key === 'ArrowLeft' || event.key === 'k')) {
+    if (!matchesShortcutModifiers(event)) return;
+
+    if (keyboardNavigation && (matchesShortcut(event, 'ArrowLeft') || matchesShortcut(event, 'k'))) {
       event.preventDefault();
       event.stopPropagation();
       onPrev();
       return;
     }
-    if (keyboardNavigation && (event.key === 'ArrowRight' || event.key === 'j')) {
+    if (keyboardNavigation && (matchesShortcut(event, 'ArrowRight') || matchesShortcut(event, 'j'))) {
       event.preventDefault();
       event.stopPropagation();
       onNext();
