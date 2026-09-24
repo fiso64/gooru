@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileItem } from '$lib/api/types';
+import { ApiClient } from '$lib/api/client';
 
 const { clearViewerPreloadCache } = vi.hoisted(() => ({ clearViewerPreloadCache: vi.fn() }));
 vi.mock('$lib/utils/viewerPreload', () => ({
@@ -43,17 +44,56 @@ describe('tag search transition', () => {
 });
 
 describe('preview navigation', () => {
-  it('cancels speculative preload work while remaining deterministic during rapid right navigation', () => {
-    const library = createLibraryWorkflow();
-    const files = [file('a'), file('b'), file('c'), file('d')];
+  it('serializes rapid keypresses and wraps across unloaded grid pages', async () => {
+    const all = [file('a'), file('b'), file('c'), file('d')];
+    const around = vi.spyOn(ApiClient.prototype, 'filesAround').mockImplementation(async (id, _query, _sort, _order, count) => {
+      const index = all.findIndex((item) => item.id === id);
+      if (index === -1) throw new Error('missing anchor');
+      const length = Math.min(count ?? 5, all.length - 1);
+      return {
+        before: Array.from({ length }, (_, step) => all[(index - step - 1 + all.length) % all.length]),
+        after: Array.from({ length }, (_, step) => all[(index + step + 1) % all.length])
+      };
+    });
+    try {
+      const library = createLibraryWorkflow();
+      // The displayed grid page only contains a, not the other matching files.
+      library.openPreview(all[0], [all[0]]);
+      await library.movePreview(-1);
+      expect(library.activeFile?.id).toBe('d');
+      const moves = [library.movePreview(1), library.movePreview(1), library.movePreview(1)];
+      await Promise.all(moves);
+      expect(library.activeFile?.id).toBe('c');
+      expect(around).toHaveBeenCalledWith('a', '', 'added', 'desc', 5);
+      expect(clearViewerPreloadCache).toHaveBeenCalledTimes(5);
+    } finally {
+      around.mockRestore();
+    }
+  });
 
-    library.openPreview(files[0], files);
-    library.movePreview(1, files);
-    library.movePreview(1, files);
-    library.movePreview(1, files);
-
-    expect(library.activeFile?.id).toBe('d');
-    expect(clearViewerPreloadCache).toHaveBeenCalledTimes(4);
+  it('navigates a directly opened file without any grid pages and preserves the filter context', async () => {
+    const all = [file('first'), file('middle'), file('last')];
+    const around = vi.spyOn(ApiClient.prototype, 'filesAround').mockImplementation(async (id, query, _sort, _order, count) => {
+      expect(query).toBe('flag:yes');
+      const index = all.findIndex((item) => item.id === id);
+      const length = Math.min(count ?? 5, all.length - 1);
+      return {
+        before: Array.from({ length }, (_, step) => all[(index - step - 1 + all.length) % all.length]),
+        after: Array.from({ length }, (_, step) => all[(index + step + 1) % all.length])
+      };
+    });
+    try {
+      const library = createLibraryWorkflow();
+      library.commitSearch('flag:yes');
+      library.openPreview(all[1]);
+      await library.movePreview(-1);
+      expect(library.activeFile?.id).toBe('first');
+      await library.movePreview(-1);
+      expect(library.activeFile?.id).toBe('last');
+      expect(around).toHaveBeenCalledTimes(1);
+    } finally {
+      around.mockRestore();
+    }
   });
 });
 

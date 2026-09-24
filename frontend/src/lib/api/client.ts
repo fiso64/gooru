@@ -120,6 +120,18 @@ export class ApiClient {
     });
   }
 
+  // POST keeps free-form filter text out of the URL in both normal and protected modes.
+  async filesAround(fileID: string, query: string, sort: FileSort, order: SortOrder, count = 5, signal?: AbortSignal): Promise<{ before: FileItem[]; after: FileItem[] }> {
+    const response = await fetch(`${absoluteBaseURL(this.baseURL)}/files/around`, {
+      method: 'POST', credentials: 'same-origin', signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: fileID, query, sort, order, count })
+    });
+    const payload = await parseJSONResponse<{ before: FileItem[]; after: FileItem[] }>(response);
+    if (!response.ok || !payload) throw apiErrorFromResponse(response, payload);
+    return payload;
+  }
+
   async createURLState(state: LibraryURLState, signal?: AbortSignal): Promise<string> {
     const response = await fetch(`${absoluteBaseURL(this.baseURL)}/ui-state`, {
       method: 'POST', credentials: 'same-origin', signal,

@@ -378,6 +378,31 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /files/around:
+    post:
+      summary: Get bounded nearest-first neighbors of a tracked file in the complete filtered and sorted listing.
+      description: Read-only POST keeps private query expressions out of URLs. The current file must match the query; the lists wrap at global listing boundaries and omit repeated IDs within each direction.
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileAroundRequest"
+      responses:
+        "200":
+          description: Up to count nearest files on either side of the anchor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileAroundResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Anchor does not belong to this filtered listing.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /files/{id}:
     get:
       summary: Get one tracked file by opaque file ID.
@@ -1970,6 +1995,36 @@ components:
           enum: [asc, desc]
         file_id:
           type: string
+    FileAroundRequest:
+      type: object
+      required: [file_id, count]
+      properties:
+        file_id:
+          type: string
+        query:
+          type: string
+        sort:
+          type: string
+          enum: [added, name, modified, size, kind]
+        order:
+          type: string
+          enum: [asc, desc]
+        count:
+          type: integer
+          minimum: 1
+          maximum: 20
+    FileAroundResponse:
+      type: object
+      required: [before, after]
+      properties:
+        before:
+          type: array
+          items:
+            $ref: "#/components/schemas/File"
+        after:
+          type: array
+          items:
+            $ref: "#/components/schemas/File"
     FileListResponse:
       type: object
       required: [files, total_count, library_count]
