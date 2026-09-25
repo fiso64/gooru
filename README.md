@@ -1,23 +1,23 @@
 # Gooru
 
-Gooru is a media library for browsing, tagging, uploading, and viewing files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server. It can tag external files and does not require copying them to a managed library.
+Gooru is a media library for browsing, tagging, uploading, and viewing files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server.
 
-Files are identified by content rather than only by path. This allows Gooru to recognize the same content after a rename or move, or even function as an archive capable of checking file integrity when using [full hashing](docs/HASHING.md).
+Your files can remain at their original locations; they do not have to be copied/imported into a Gooru-managed library in order to be tagged (but can be). Tagged items are identified by content rather than only by path, which allows Gooru to preserve tags after renames and moves.
 
-Gooru is intended primarily for personal and private multi-user libraries rather than public imageboard-style communities.
+Gooru is intended primarily for personal and private multi-user libraries rather than public imageboard communities.
 
-  <img width="700" alt="Gooru demo showing the media library interface" src="https://github.com/user-attachments/assets/cf8a4feb-c508-474a-9b53-03e1bd077151" />
+  <img width="700" alt="Gooru demo showing the media library interface" src="https://github.com/user-attachments/assets/cf8a4feb-c508-474a-9b53-03e1bd077151" />  
 
-It's a booru written in Go, hence "Gooru", but should be pronounced like the word guru. I thought it's clever.
+  
+It's a booru written in Go, hence "Gooru", but the name should be pronounced like the word guru. I thought it's clever.
 
 ## Features
 
 - Keyboard-friendly webui with search, tags, saved searches, bulk actions, and a good viewer.
-- View supported media, including images, videos, gifs, and `.cbz` comic archives. 
+- View supported media, including images, videos, gifs, and cbz comic archives. 
 - Tag external files without duplicating, or upload to configurable target dirs.
 - Hash-based file identity that survives external renames and moves.
 - Optional encryption for the database and uploads.
-- Many UI styling options.
 - An ergonomic CLI.
 
 ## Getting started
@@ -45,7 +45,7 @@ See [running and deploying Gooru](docs/SERVE.md) for installation and first-run 
   </tr>
   <tr>
     <td width="50%">
-      <em>The viewer should be quite fast. It supports prev/next navigation,
+      <em>The viewer supports prev/next navigation,
       fullscreen, and various fit and scaling modes.</em>
     </td>
     <td width="50%">
@@ -75,7 +75,7 @@ See [running and deploying Gooru](docs/SERVE.md) for installation and first-run 
       sorted by their file modtime, which is useful for preserving order when importing existing content.</em>
     </td>
     <td width="50%">
-      <em>The library grid can be paged or scroll infinitely. There are also three layout modes: Square (seen in the main demo image), fit (as above in the booru theme demo; independently configurable), and tile mode shown here.</em>
+      <em>The library grid can be paged or scroll infinitely. There are also three layout modes: Square (seen in the main demo image), fit (as above in the booru theme demo; configurable independently of the theme), and dynamic tile mode shown here.</em>
     </td>
   </tr>
 </table>
