@@ -20,6 +20,60 @@ It's a booru written in Go, hence "Gooru", but should be pronounced like the wor
 - Many UI styling options.
 - An ergonomic CLI.
 
+## Gallery
+
+<table>
+  <tr>
+    <th width="50%">Media viewer</th>
+    <th width="50%">Booru-style theme</th>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img width="800" alt="Gooru library view"
+           src="https://github.com/user-attachments/assets/68a9f449-29e4-48d1-8f17-122825d6f467" />
+    </td>
+    <td width="50%">
+      <img width="800" alt="Gooru media viewer"
+           src="https://github.com/user-attachments/assets/d2501af1-4dff-4d76-9e6e-a1b14efbd8b8" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <em>The viewer should be quite fast. It supports prev/next navigation,
+      fullscreen, and various fit and scaling modes.</em>
+    </td>
+    <td width="50%">
+      <em>There is an alternative theme (definitely not stolen from Danbooru), if you want a more classic vibe for your library of slop.</em>
+    </td>
+  </tr>
+</table>
+<table>
+  <tr>
+    <th width="50%">Uploads</th>
+    <th width="50%">Grid styles</th>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img width="800" alt="Gooru uploads tab"
+           src="https://github.com/user-attachments/assets/0fe9e828-0751-40f4-80bd-37cf0d0a5dd6" />
+    </td>
+    <td width="50%">
+      <img width="800" alt="Grid styles in Gooru"
+           src="https://github.com/user-attachments/assets/8921ced7-7419-4468-94ef-46fc8f321ab8" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <em>Drop or paste files anywhere to stage, then tag them or preview
+      in the viewer before uploading. As you can see, uploads can also be
+      sorted by their file modtime, which is useful for preserving order when importing existing content.</em>
+    </td>
+    <td width="50%">
+      <em>The library grid can be paged or scroll infinitely. There are also three layout modes: Square (seen in the main demo image), fit (as above in the booru theme demo; independently configurable), and tile mode shown here.</em>
+    </td>
+  </tr>
+</table>
+
 ## Getting started
 
 Get an appropriate release for your system from the [releases page](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [NixOS module](docs/SERVE.md#nixos-deployment).
@@ -41,13 +95,6 @@ See [running and deploying Gooru](docs/SERVE.md) for installation and first-run 
 ## Project status
 
 Under development. Back up your data!
-
-## More pictures
-
-| Media viewer | Booru-style theme |
-| --- | --- |
-| <img width="800" alt="Gooru library view" src="https://github.com/user-attachments/assets/68a9f449-29e4-48d1-8f17-122825d6f467" /> | <img width="800" alt="Gooru media viewer" src="https://github.com/user-attachments/assets/d2501af1-4dff-4d76-9e6e-a1b14efbd8b8" /> |
-| *It should be pretty fast. Supports prev/next navigation, fullscreen, and various fit and scaling modes.* | *Stolen from Danbooru. A different vibe for your library of slop.* |
 
 ## License
 
