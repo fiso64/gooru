@@ -20,6 +20,12 @@ It's a booru written in Go, hence "Gooru", but should be pronounced like the wor
 - Many UI styling options.
 - An ergonomic CLI.
 
+## Getting started
+
+Get an appropriate release for your system from the [releases page](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [NixOS module](docs/SERVE.md#nixos-deployment).
+
+See [running and deploying Gooru](docs/SERVE.md) for installation and first-run instructions. You can also [build from source](docs/DEVELOPMENT.md#build-from-source).
+
 ## Gallery
 
 <table>
@@ -73,12 +79,6 @@ It's a booru written in Go, hence "Gooru", but should be pronounced like the wor
     </td>
   </tr>
 </table>
-
-## Getting started
-
-Get an appropriate release for your system from the [releases page](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [NixOS module](docs/SERVE.md#nixos-deployment).
-
-See [running and deploying Gooru](docs/SERVE.md) for installation and first-run instructions. You can also [build from source](docs/DEVELOPMENT.md#build-from-source).
 
 ## Documentation
 
