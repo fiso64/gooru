@@ -47,7 +47,7 @@ Under development. Back up your data!
 | Media viewer | Booru-style theme |
 | --- | --- |
 | <img width="800" alt="Gooru library view" src="https://github.com/user-attachments/assets/68a9f449-29e4-48d1-8f17-122825d6f467" /> | <img width="800" alt="Gooru media viewer" src="https://github.com/user-attachments/assets/d2501af1-4dff-4d76-9e6e-a1b14efbd8b8" /> |
-| *It should be pretty fast. Supports fullscreen and various fit and scaling modes.* | *Stolen from Danbooru. A different vibe for your library of slop.* |
+| *It should be pretty fast. Supports prev/next navigation, fullscreen, and various fit and scaling modes.* | *Stolen from Danbooru. A different vibe for your library of slop.* |
 
 ## License
 
