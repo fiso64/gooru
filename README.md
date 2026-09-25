@@ -1,6 +1,6 @@
 # Gooru
 
-Gooru is a media library for browsing, tagging, uploading, and viewing files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server.
+Gooru is a media library for browsing, tagging, uploading, and viewing files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server. It can tag external files and does not require copying them to a managed library.
 
 Files are identified by content rather than only by path. This allows Gooru to recognize the same content after a rename or move, or even function as an archive capable of checking file integrity when using [full hashing](docs/HASHING.md).
 
@@ -8,21 +8,21 @@ Gooru is intended primarily for personal and private multi-user libraries rather
 
   <img width="700" alt="Gooru demo showing the media library interface" src="https://github.com/user-attachments/assets/cf8a4feb-c508-474a-9b53-03e1bd077151" />
 
-The name Gooru sounds like the word "guru", and is also for a booru written in go. I thought it's clever.
+It's a booru written in Go, hence "Gooru", but should be pronounced like the word guru. I thought it's clever.
 
 ## Features
 
-- Webui library with search, tags, saved searches, and bulk actions.
+- Keyboard-friendly webui with search, tags, saved searches, bulk actions, and a good viewer.
 - View supported media, including images, videos, gifs, and `.cbz` comic archives. 
-- Tag external files without importing, or upload to configurable target dirs.
-- Content-based file identity that survives renames and moves.
+- Tag external files without duplicating, or upload to configurable target dirs.
+- Hash-based file identity that survives external renames and moves.
 - Optional encryption for the database and uploads.
 - Many UI styling options.
 - An ergonomic CLI.
 
 ## Getting started
 
-Get a Debian package, Linux tarball, or Windows ZIP from the [latest release](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [NixOS module](docs/SERVE.md#nixos-deployment). Each package includes the WebUI; Debian and Nix builds also support libvips.
+Get an appropriate release for your system from the [releases page](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [NixOS module](docs/SERVE.md#nixos-deployment).
 
 See [running and deploying Gooru](docs/SERVE.md) for installation and first-run instructions. You can also [build from source](docs/DEVELOPMENT.md#build-from-source).
 
@@ -51,4 +51,4 @@ Under development. Back up your data!
 
 ## License
 
-Gooru is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE) for the license text and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and assets.
+Gooru is licensed under **AGPL-3.0-only**.
