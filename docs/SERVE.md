@@ -1,10 +1,11 @@
 # Run and deploy Gooru
 
-`gooru serve` runs the API and WebUI in one process. For server settings, see [CONFIG.md](CONFIG.md); for API details, see [openapi.yaml](openapi.yaml).
+`gooru serve` runs serves the WebUI. For server settings, see [CONFIG.md](CONFIG.md); for API details, see [openapi.yaml](openapi.yaml).
 
 ## Install Gooru
 
-For Debian, Linux tarballs, and Windows ZIPs, get the package from the [latest release](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the published Nix package from Gooru's Cachix cache.
+For Debian, Linux tarballs, and Windows ZIPs, get the package from the [latest release](https://github.com/fiso64/gooru/releases/latest).  
+On NixOS, use the published Nix package from Gooru's Cachix cache.
 
 ### Debian / Ubuntu
 
@@ -14,11 +15,11 @@ Download the `.deb` for your architecture (amd64 or arm64) and install it:
 sudo apt install ./gooru_*.deb
 ```
 
-The package includes the WebUI and a `gooru@.service` template. To configure an instance, create an administrator, and run Gooru in the background, follow the [Debian/Ubuntu service setup](#systemd-linux) below. If you prefer to run it manually, set `server.frontend_dir: /usr/share/gooru/frontend` in your config and follow [First run](#first-run).
+The package includes the a `gooru@.service` template. To configure an instance, follow the [Debian/Ubuntu service setup](#systemd-linux) below. If you prefer to run it manually, set `server.frontend_dir: /usr/share/gooru/frontend` in your config and follow [First run](#first-run).
 
 ### NixOS via Cachix
 
-Use the prebuilt Gooru package from [Cachix](https://gooru.cachix.org/) with the declarative [NixOS deployment](#nixos-deployment).
+Use the prebuilt Gooru package with the declarative [NixOS deployment](#nixos-deployment).
 
 ### Linux tarball
 
@@ -34,7 +35,7 @@ Debian and Nix builds use libvips for thumbnails; portable Linux and Windows bui
 
 ## First run
 
-For manually run Debian, Linux tarball, or Windows ZIP installations, initialize the database, generate a config, and create an administrator. Do not initialize a separate database with these commands:
+For Linux tarball or Windows ZIP installations, initialize the database, generate a config, and create an administrator:
 
 ```bash
 gooru init
@@ -43,16 +44,11 @@ gooru user create-admin --username alice --config serve.yaml
 gooru serve --config serve.yaml
 ```
 
-For the **Debian/Ubuntu** `gooru@.service`, use the [managed service setup](#systemd-linux) instead.  
-For **NixOS**, use the [declarative module configuration](#nixos-deployment) instead of these manual commands.
-
-Set `server.frontend_dir` to `/usr/share/gooru/frontend` for a manual Debian install. The extracted Linux and Windows archives work with the default `frontend/build` when run from their directory. When using a different database path, use it for both initialization and serving.
-
-Open <http://127.0.0.1:5678>. By default Gooru listens only on your computer, requires login, and provisions one private persistent upload destination. Once signed in as an administrator, you can upload files in the WebUI without changing the generated configuration. See [CONFIG.md](CONFIG.md) for other settings and [CLI.md](CLI.md) for library commands.
+Open <http://127.0.0.1:5678>. By default Gooru listens only on your computer, and provisions one persistent upload destination. Once signed in as an administrator, you can upload files in the WebUI. See [CONFIG.md](CONFIG.md) for other settings and [CLI.md](CLI.md) for library commands.
 
 ## Uploads
 
-Uploads are enabled by default for authenticated installations. When no targets are specified, Gooru prepares a private persistent upload directory for the account or managed service instance running it. You can upload after creating an administrator and signing in. To choose your own destination instead, configure an explicit target:
+Uploads are enabled by default. When no targets are specified, Gooru prepares a persistent upload directory. You can upload after creating an administrator and signing in. To choose your own destination instead, configure an explicit target:
 
 ```yaml
 uploads:
@@ -64,15 +60,13 @@ uploads:
   max_file_size_bytes: 104857600
 ```
 
-Set `uploads.enabled: false` to disable uploads. If authentication is disabled, uploads remain disabled unless `uploads.enabled: true` is explicitly configured, even on loopback. Setting `uploads.targets: []` explicitly suppresses the automatic target; enabling uploads with no target is rejected at startup. The automatic directory must be writable by the server account, and startup fails rather than falling back to a temporary location when it cannot be provisioned. Managed instances use their own private state directories (for example, `/var/lib/gooru-main/uploads`).
-
-Upload target paths must be absolute. Gooru exposes target IDs and display names to clients, not the configured filesystem paths.
+If authentication is disabled, uploads remain disabled unless `uploads.enabled: true` is explicitly configured. The automatic directory must be writable by the server account. 
 
 Same-name uploads are renamed if their content does not exist in the library, otherwise skipped.
 
 ## Network access
 
-Keep the default loopback bind for single-machine use:
+Keep the default loopback bind for single-machine or reverse proxy use:
 
 ```yaml
 server:
@@ -118,13 +112,9 @@ encryption:
   key_file: /srv/gooru/encryption.key
 ```
 
-Alternatively use `GOORU_ENCRYPTION_KEY` or `GOORU_ENCRYPTION_KEY_FILE`. Exactly one key source must be active. Back up the key separately from encrypted data; the wrong key cannot decrypt content written with the original key.
+Alternatively use `GOORU_ENCRYPTION_KEY` or `GOORU_ENCRYPTION_KEY_FILE`. The key is like a password, so back it up separately from the encrypted data and don't lose it.
 
 See [CONFIG.md#encryption](CONFIG.md#encryption) for the complete rules.
-
-## Media tooling
-
-Debian and Nix packages enable libvips; portable Linux and Windows builds use the pure-Go image path. Video thumbnails need `ffmpeg`, and media inspection uses `ffprobe`. See [optional build tags](DEVELOPMENT.md#optional-build-tags) if you want a custom build.
 
 ## systemd (Linux)
 
@@ -168,11 +158,11 @@ sudo systemctl enable --now gooru@main.service
 sudo systemctl status --no-pager gooru@main.service
 ```
 
-Open <http://127.0.0.1:5678> on the server and sign in as `alice`. If startup fails, inspect `sudo journalctl -u gooru@main.service -e`. The example listens only on the host; see [Network access](#network-access) for other deployments and [CONFIG.md](CONFIG.md) for configuration options.
+Open <http://127.0.0.1:5678> on the server and sign in. If startup fails, inspect `sudo journalctl -u gooru@main.service -e`. The example listens only on the host; see [Network access](#network-access) for other deployments and [CONFIG.md](CONFIG.md) for configuration options.
 
 ## NixOS deployment
 
-Use [Gooru's Cachix cache](https://gooru.cachix.org/) as the binary source for NixOS. Add its substituter and public signing key to your NixOS configuration:
+Use [Gooru's Cachix repo](https://gooru.cachix.org/) as the binary source on NixOS. Add it to your NixOS configuration:
 
 ```nix
 nix.settings = {
@@ -183,7 +173,7 @@ nix.settings = {
 };
 ```
 
-If this is the first time you have configured the cache on the host, apply these settings in a system rebuild before enabling the Gooru instance so the Nix daemon can use Cachix for the first Gooru build.
+If this is the first time you have configured the cache on the host, it might require a separate rebuild before enabling the Gooru instance so the Nix daemon can use Cachix for the first Gooru build.
 
 Add Gooru to your NixOS flake inputs:
 
