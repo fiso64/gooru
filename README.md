@@ -9,7 +9,7 @@ Gooru is intended primarily for personal and private multi-user libraries rather
   <img width="700" alt="Gooru demo showing the media library interface" src="https://github.com/user-attachments/assets/cf8a4feb-c508-474a-9b53-03e1bd077151" />  
 
   
-It's a booru written in Go, hence "Gooru", but the name should be pronounced like the word guru. I thought it's clever.
+It's a booru written in Go, hence "Gooru", but the name should be pronounced like the word guru. I thought it was clever.
 
 ## Features
 
