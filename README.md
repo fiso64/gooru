@@ -1,8 +1,8 @@
 # Gooru
 
-Gooru is a media library for browsing, tagging, uploading, and viewing files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server.
+Gooru is a media library for browsing, tagging, and uploading files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server.
 
-Your files can remain at their original locations; they do not have to be copied/imported into a Gooru-managed library in order to be tagged (but can be). Tagged items are identified by content rather than only by path, which allows Gooru to preserve tags after renames and moves.
+Your files can remain at their original location: they do not have to be copied/imported into a Gooru-managed library in order to be tagged (but can be). Tagged items are identified by content rather than only by path, which allows Gooru to preserve tags after renames and moves.
 
 Gooru is intended primarily for personal and private multi-user libraries rather than public imageboard communities.
 
